@@ -161,19 +161,17 @@ static void perform_sftp_transfer_for_chunk(sftp_session sftp, ssh_session sessi
             goto cleanup;
         }
 
-        // ---- 追加: cmd_time の記録 ----
+        // ---- 追加: cmd_time_usec の記録 ----
         if (measure_transaction_latency_gl) {
             struct timeval current_time;
             gettimeofday(&current_time, NULL);
-            int cmd_time = (current_time.tv_sec - reqs[idx].start_time.tv_sec) * 1000000 +
+            int cmd_time_usec = (current_time.tv_sec - reqs[idx].start_time.tv_sec) * 1000000 +
                         (current_time.tv_usec - reqs[idx].start_time.tv_usec);
 
             int pos = data->latency_count % RING_BUF;
-            data->latency_buffer[pos] = cmd_time;
-            data->len_buffer[pos] = transferred_len;
+            data->a_latency_usec_buffer[pos] = cmd_time_usec;
+            data->a_transferred_bytes_buffer[pos] = transferred_len;
             data->latency_count++;
-
-            printf("%d, %ld\n", cmd_time, reqs[idx].start_time.tv_sec);
         }
         // ------------------------------
 

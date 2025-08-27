@@ -30,8 +30,8 @@ typedef struct {
   size_t copied_bytes;
   pthread_t tid;
 
-  uint32_t latency_buffer[RING_BUF];
-  int len_buffer[RING_BUF];
+  uint32_t a_latency_usec_buffer[RING_BUF];
+  int a_transferred_bytes_buffer[RING_BUF];
   int latency_count;
 
   struct timeval conn_established_time;

@@ -378,7 +378,7 @@ static void *thread_manage_sftp_cmd() {
     size_t prev_total_bytes = 0;
     int prev_conn = 1, cur_conn = 1;
     int opt_dur_dyna_us = 100000;
-
+    
     while (!transfer_complete_gl) {
         if (test_change_flag_gl == 1) { // スレッドが増加した場合
             while (flag_nr_conn_changed_gl) {
@@ -405,7 +405,7 @@ static void *thread_manage_sftp_cmd() {
             if (new_data_count > 0) {
                 for (int j = 0; j < new_data_count; ++j) {
                     int pos = (prev_latency_count[i] + j) % RING_BUF;
-                    int latency = thread_data[i].latency_buffer[pos];
+                    int latency = thread_data[i].a_latency_usec_buffer[pos];
                     total_latency_sum += latency;
                     if (latency > max_latency) max_latency = latency;
                 }
