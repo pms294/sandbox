@@ -143,6 +143,10 @@ static void perform_sftp_transfer_for_chunk(sftp_session sftp, ssh_session sessi
     for (idx = 0; idx < DEFAULT_NR_AHEAD && thrown > 0; idx++) {
         reqs[idx].len = min(thrown, DEFAULT_BUF_SZ);
         reqs[idx].len = sftp_async_write(file, read_to_buf, reqs[idx].len, &local_fd, &reqs[idx].id);
+        if (measure_transaction_latency_gl) {
+            gettimeofday(&reqs[idx].start_time, NULL);
+        }
+
         if (reqs[idx].len < 0) {
             fprintf(stderr, "\nsftp_async_write: %s\n", ssh_get_error(session));
             goto cleanup;
@@ -156,6 +160,24 @@ static void perform_sftp_transfer_for_chunk(sftp_session sftp, ssh_session sessi
             fprintf(stderr, "\nsftp_async_write_end: %s\n", ssh_get_error(session));
             goto cleanup;
         }
+
+        // ---- 追加: cmd_time の記録 ----
+        if (measure_transaction_latency_gl) {
+            struct timeval current_time;
+            gettimeofday(&current_time, NULL);
+            int cmd_time = (current_time.tv_sec - reqs[idx].start_time.tv_sec) * 1000000 +
+                        (current_time.tv_usec - reqs[idx].start_time.tv_usec);
+
+            int pos = data->latency_count % RING_BUF;
+            data->latency_buffer[pos] = cmd_time;
+            data->len_buffer[pos] = transferred_len;
+            data->latency_count++;
+
+            printf("%d, %ld\n", cmd_time, reqs[idx].start_time.tv_sec);
+        }
+        // ------------------------------
+
+
         remaind -= transferred_len;
         // --- 修正点: アトミックな加算に変更 ---
         __sync_fetch_and_add(&data->copied_bytes, transferred_len);
@@ -163,6 +185,10 @@ static void perform_sftp_transfer_for_chunk(sftp_session sftp, ssh_session sessi
         if (thrown > 0) {
             reqs[idx].len = min(thrown, DEFAULT_BUF_SZ);
             reqs[idx].len = sftp_async_write(file, read_to_buf, reqs[idx].len, &local_fd, &reqs[idx].id);
+            if (measure_transaction_latency_gl) {
+                gettimeofday(&reqs[idx].start_time, NULL);
+            }
+
             if (reqs[idx].len < 0) {
                 fprintf(stderr, "\nsftp_async_write: %s\n", ssh_get_error(session));
                 goto cleanup;

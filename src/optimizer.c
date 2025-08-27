@@ -315,7 +315,7 @@ static void threads_manage_BO() {
     }
 }
 
-// --- SFTPコマンド遅延ベースの最適化 ---
+// --- SFTPコマンド遅延ベースの最適化 ---  
 static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int cur_conn) {
     if (cur_conn == prev_conn) {
         return;
@@ -465,7 +465,7 @@ void *dynamic_transfer_threads_management(void *arg) {
         threads_manage_BO();
         return NULL;
     }
-    if (sftp_cmd_metric_flag_gl) {
+    if (measure_transaction_latency_gl) {
         thread_manage_sftp_cmd();
         return NULL;
     }

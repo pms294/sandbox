@@ -65,7 +65,7 @@ extern int opt_dur_gl;
 extern int stop_thread_inc_gl;
 
 // SFTPコマンド遅延測定用
-extern bool sftp_cmd_metric_flag_gl;
+extern bool measure_transaction_latency_gl;
 extern int sftp_cmd_get_count_gl;
 extern int sftp_cmd_worst_case_latency;
 
