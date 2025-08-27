@@ -1,0 +1,4 @@
+sudo tc qdisc del dev enp101s0f0np0 root
+sudo tc qdisc add dev enp101s0f0np0 root handle 1: netem delay 30ms
+tc qdisc show dev enp101s0f0np
+sudo tc qdisc replace dev enp101s0f0np0 root netem delay 30ms limit 10000

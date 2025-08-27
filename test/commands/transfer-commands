@@ -1,0 +1,3 @@
+./build/mscptest -f 500G -c 100 -x 5 /dev/zero 10.0.0.2:/dev/null
+mscp -n 10 /mnt/tmpfs/data-20G-0x00 10.0.0.2:/mnt/tmpfs/
+./build/mscptest -f 20G /dev/zero 10.0.0.2:/dev/null
