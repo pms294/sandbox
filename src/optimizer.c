@@ -56,6 +56,10 @@ static void adaptive_adjustment(double prev_thr, double cur_thr);
 // --- 最適化アルゴリズムの実装 ---
 
 static void simple_increase() {
+    if (cur_thread_gl != 1) {
+        cur_thread_gl--;
+        return;
+    }
     if (stop_thread_inc_gl > 0 && cur_thread_gl >= stop_thread_inc_gl) {
         return;
     }
@@ -591,7 +595,7 @@ void *dynamic_transfer_threads_management(void *arg) {
             }
         } else if (new_thread_gl < old_thread_gl) {
             for (int i = 0; i < (old_thread_gl - new_thread_gl); i++) {
-                sem_trywait(&sem_for_optimization);
+                printf("     %d\n", sem_trywait(&sem_for_optimization));
             }
         }
         

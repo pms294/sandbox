@@ -75,6 +75,7 @@ static void *worker_thread_func(void *arg) {
     sftp_session sftp = init_sftp_session(session);
     sem_post(&sem_for_maxstartups);
 
+
     while (1) {
         int my_chunk_num;
 
@@ -88,7 +89,9 @@ static void *worker_thread_func(void *arg) {
         pthread_mutex_unlock(&transfer_mutex);
         
         sem_wait(&sem_for_optimization);
+
         perform_sftp_transfer_for_chunk(sftp, session, data, my_chunk_num);
+
         sem_post(&sem_for_optimization);
     }
 
