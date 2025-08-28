@@ -66,7 +66,7 @@ extern int stop_thread_inc_gl;
 
 // SFTPコマンド遅延測定用
 extern bool measure_transaction_latency_gl;
-extern int sftp_cmd_get_count_gl;
+extern int g_sftp_cmd_get_count;
 extern int sftp_cmd_worst_case_latency;
 
 // 同期用
@@ -76,7 +76,7 @@ extern sem_t sem_for_optimization;
 
 // ワーカースレッドの動的変更用フラグ
 extern int flag_nr_conn_changed_gl;
-extern int test_change_flag_gl;
+extern int g_thread_adjust_state;
 extern int exp_opt_h_gl;
 
 // 共有データ

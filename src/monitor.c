@@ -41,8 +41,8 @@ void *monitor_transfer(void *arg) {
         double elapsed = (current_time.tv_sec - last_time.tv_sec) + 
                          (current_time.tv_usec - last_time.tv_usec) / 1000000.0;
         
-        // 画面の更新は1秒ごとに行う
-        if (elapsed >= 1.0) {
+        // 画面の更新は1秒ごと、かつ measure_transaction_latency_gl が false のときのみ
+        if (elapsed >= 1.0 && !measure_transaction_latency_gl) {
             mscptest_get_stats(&stats);
             size_t now_done = stats.done;
             size_t total = stats.total > 0 ? stats.total : 1;

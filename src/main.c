@@ -20,13 +20,13 @@ int opt_algo_gl = 0;
 int opt_dur_gl = 5;
 int stop_thread_inc_gl = 0;
 bool measure_transaction_latency_gl = false;
-int sftp_cmd_get_count_gl = 0;
+int g_sftp_cmd_get_count = 0;
 int sftp_cmd_worst_case_latency = 0;
 int exp_opt_h_gl = 0;
 volatile int active_thread_count_gl = 0;
 int transfer_complete_gl = 0;
 int flag_nr_conn_changed_gl = 0;
-int test_change_flag_gl = 0;
+int g_thread_adjust_state = 0;
 thread_data_t *thread_data = NULL;
 int chunk_count_gl = 0;
 int chunk_last_count_gl;
@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
             case 'e': stop_thread_inc_gl = atoi(optarg); break;
             case 's': opt_dur_gl = atoi(optarg); break;
             case 'f': fake_file_size_gl = parse_file_size(optarg); break;
-            case 'c': measure_transaction_latency_gl = true; sftp_cmd_get_count_gl = atoi(optarg); break;
+            case 'c': measure_transaction_latency_gl = true; g_sftp_cmd_get_count = atoi(optarg); break;
             case 't': sftp_cmd_worst_case_latency = atoi(optarg); break;
             case 'h': exp_opt_h_gl = atoi(optarg); break;
             default:

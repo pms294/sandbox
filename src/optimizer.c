@@ -316,8 +316,8 @@ static void threads_manage_BO() {
 }
 
 // --- SFTPコマンド遅延ベースの最適化 ---  
-static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int cur_conn) {
-    if (cur_conn == prev_conn) {
+static void adaptive_GD_algorithm(double prev_thr, double cur_thr, int prev_conn, int cur_conn) {
+    if (cur_conn == prev_conn || fabs(cur_thr - prev_thr) < 0.50) {
         return;
     }
     double gradient = (cur_thr - prev_thr) / (cur_conn - prev_conn);
@@ -334,7 +334,6 @@ static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int c
             temp = (int)ceil(delta * learning_factor);
             if (cur_thread_gl + temp < MAX_THREADS) {
                 cur_thread_gl += temp;
-                test_change_flag_gl = (cur_thread_gl >= active_thread_count_gl) ? 1 : 3;
             }
             learning_factor *= 2;
         } else {
@@ -343,7 +342,6 @@ static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int c
             temp = (int)ceil(-delta * learning_factor);
             if (cur_thread_gl > temp) {
                 cur_thread_gl -= temp;
-                test_change_flag_gl = 2;
             }
             learning_factor *= 2;
         }
@@ -352,7 +350,6 @@ static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int c
             temp = (int)ceil(-delta * learning_factor);
             if (cur_thread_gl > temp) {
                 cur_thread_gl -= temp;
-                test_change_flag_gl = 2;
             }
             learning_factor *= 2;
         } else {
@@ -361,7 +358,6 @@ static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int c
             temp = (int)ceil(delta * learning_factor);
             if (cur_thread_gl + temp < MAX_THREADS) {
                 cur_thread_gl += temp;
-                test_change_flag_gl = (cur_thread_gl >= active_thread_count_gl) ? 1 : 3;
             }
             learning_factor *= 2;
         }
@@ -369,89 +365,175 @@ static void GD_algorithm_3(double prev_thr, double cur_thr, int prev_conn, int c
 }
 
 static void *thread_manage_sftp_cmd() {
+
+    // ループを開始する前に、変数を初期化する
     struct timeval start_time, current_time, prev_time;
     gettimeofday(&start_time, NULL);
     prev_time = start_time;
     
     int prev_latency_count[MAX_THREADS] = {0};
-    double prev_thr = 0;
-    size_t prev_total_bytes = 0;
+    double prev_thr_Gbps = 0, cur_thr_Gbps = 0;
+    size_t prev_total_sent_bytes = 0;
     int prev_conn = 1, cur_conn = 1;
-    int opt_dur_dyna_us = 100000;
+    int adaptive_sleep_usec = 100000; // 初期値100ms
+    int elapsed_time_usec = 0;
+    int stedy_state_cnt = 0;
+    int stedy_state_check = 0;
+
+    printf("dev\ndev\ndev\n");
     
     while (!transfer_complete_gl) {
-        if (test_change_flag_gl == 1) { // スレッドが増加した場合
-            while (flag_nr_conn_changed_gl) {
-                usleep(100);
-            }
-        } else {
-            usleep(opt_dur_dyna_us);
+
+        // g_thread_adjust_state == 0   スレッドの初期条件
+        // g_thread_adjust_state == 1   スレッドが増加したとき
+        // g_thread_adjust_state == 2   スレッドが減ったとき
+        // g_thread_adjust_state == 3   スレッドが変わらなかったとき, コネクションが確立したとき
+        // g_thread_adjust_state == 4   スレッドの初期条件の後、1回だけスレッドを増やしたとき
+
+        if (g_thread_adjust_state == 0) {
+            usleep(1000000); // 1秒待つ   コネクションの確立の過渡期、コネクションの増減を行わない
         }
-        test_change_flag_gl = 0;
+        if (g_thread_adjust_state == 1) {
+            usleep(100000); // 100m秒待つ     コネクションの確立の過渡期、コネクションの増減を行わない
+        }
+        if (g_thread_adjust_state == 2) {
+            usleep(100000); // 100m秒待つ     コネクションの確立の過渡期、コネクションの増減を行わない
+        }
+        if (g_thread_adjust_state == 3) {
+            usleep(adaptive_sleep_usec); // コネクション確立の過渡期を過ぎた後、コネクションを変化させる可能性あり
+        }
+        if (g_thread_adjust_state == 4) { 
+            usleep(adaptive_sleep_usec); // コネクション確立の過渡期を過ぎた後、コネクションを変化させる可能性あり
+        }
+
+        
+        usleep(adaptive_sleep_usec);
         if (transfer_complete_gl) break;
 
         gettimeofday(&current_time, NULL);
         
-        size_t total_copied_bytes = 0;
-        size_t total_latency_sum = 0;
-        int sample_count = 0;
-        int max_latency = 0;
+        // 収集するデータの初期化
+        size_t total_sent_bytes = 0;
+        size_t total_latency_usec_sum = 0;
+        int total_sample_count = 0;
 
-        for (int i = 0; i < active_thread_count_gl; ++i) {
-            total_copied_bytes += thread_data[i].copied_bytes;
-            int count = thread_data[i].latency_count;
-            int new_data_count = count - prev_latency_count[i];
-            
-            if (new_data_count > 0) {
-                for (int j = 0; j < new_data_count; ++j) {
-                    int pos = (prev_latency_count[i] + j) % RING_BUF;
-                    int latency = thread_data[i].a_latency_usec_buffer[pos];
-                    total_latency_sum += latency;
-                    if (latency > max_latency) max_latency = latency;
+        int max_latency_usec = 0;
+        int ave_latency_usec = 0;
+
+        // リングバッファから遅延データを収集
+        for (int thread_i = 0; thread_i < active_thread_count_gl; ++thread_i) {
+            total_sent_bytes += thread_data[thread_i].copied_bytes;
+            int now_latency_count_i = thread_data[thread_i].latency_count;
+            int new_data_count_i = now_latency_count_i - prev_latency_count[thread_i];
+            if (new_data_count_i > 0) {
+                for (int j = 0; j < new_data_count_i; ++j) {
+                    int pos = (prev_latency_count[thread_i] + j) % RING_BUF;
+                    int latency_usec = thread_data[thread_i].a_latency_usec_buffer[pos];
+                    total_latency_usec_sum += latency_usec;
+                    if (latency_usec > max_latency_usec) max_latency_usec = latency_usec;
                 }
-                sample_count += new_data_count;
+                total_sample_count += new_data_count_i;
             }
-            prev_latency_count[i] = count;
+            prev_latency_count[thread_i] = now_latency_count_i;
         }
 
-        if (sample_count < sftp_cmd_get_count_gl) {
+        // サンプル数が十分でない場合はスキップ
+        if (total_sample_count < g_sftp_cmd_get_count) {
             prev_time = current_time;
-            prev_total_bytes = total_copied_bytes;
+            prev_total_sent_bytes = total_sent_bytes;
             continue;
         }
 
-        size_t bytes_sent = total_copied_bytes - prev_total_bytes;
-        double time_delta = (current_time.tv_sec - prev_time.tv_sec) + (current_time.tv_usec - prev_time.tv_usec) / 1000000.0;
-        double throughput_Gbps = (time_delta > 0) ? (double)bytes_sent * 8 / (time_delta * 1e9) : 0;
+        // 転送バイト数、転送時間、スループット、経過時間、平均遅延時間の計算
+        size_t new_sent_bytes = total_sent_bytes - prev_total_sent_bytes;
+        int time_delta_usec = (current_time.tv_sec - prev_time.tv_sec) * 1000000 + (current_time.tv_usec - prev_time.tv_usec);
+        elapsed_time_usec = (current_time.tv_sec - start_time.tv_sec) * 1000000 + (current_time.tv_usec - start_time.tv_usec);
+        ave_latency_usec = total_latency_usec_sum / total_sample_count;
+        double thr_Gbps = (double) new_sent_bytes * 8 / 1000 / time_delta_usec;
+
+        // 過渡状態の
+        if (g_thread_adjust_state == 3 || g_thread_adjust_state == 4) {
+            cur_thr_Gbps = thr_Gbps;
+        }
         
-        opt_dur_dyna_us = max(10000, max_latency * 2);
+        // データ取得時間を動的に調整
+        adaptive_sleep_usec = min(100000, max_latency_usec * 2);
+
         
+        // fprintf(stderr, "STATE=%d, stedy_cnt=%d, time=%d us, threads=%d, active=%d, throughput=%.4f Gbps, cur_thr=%.4f Gbps, max_latency=%d us, ave_latency=%d us, sent_bytes=%ld byte, time_delta=%d us, sample_count=%d\n", 
+        //         g_thread_adjust_state, stedy_state_cnt, elapsed_time_usec, cur_thread_gl, active_thread_count_gl, thr_Gbps, cur_thr_Gbps,max_latency_usec, ave_latency_usec, new_sent_bytes, time_delta_usec, total_sample_count);
+
+        printf("%d, %d, %.4f\n", 
+                elapsed_time_usec, cur_thread_gl, thr_Gbps);
+
+
+        // // 初期過渡状態、増加過渡状態、減少過渡状態　＝＞　スレッドの変化、増減判断なし
+        if (g_thread_adjust_state == 0) {
+            g_thread_adjust_state = 4;
+            prev_total_sent_bytes = total_sent_bytes;
+            prev_time = current_time;
+            continue;
+        }
+        else if (g_thread_adjust_state == 1) {
+            g_thread_adjust_state = 3;
+            prev_total_sent_bytes = total_sent_bytes;
+            prev_time = current_time;  
+            continue;
+        }
+        else if (g_thread_adjust_state == 2) {
+            g_thread_adjust_state = 3;
+            prev_total_sent_bytes = total_sent_bytes;
+            prev_time = current_time;
+            continue;
+        }
+
+        // 増減をここで判断
         int old_thread_gl = cur_thread_gl;
         cur_conn = old_thread_gl;
 
-        if (cur_thread_gl < 2) {
-            cur_thread_gl++;
-            test_change_flag_gl = (cur_thread_gl >= active_thread_count_gl) ? 1 : 3;
-        } else {
-            GD_algorithm_3(prev_thr, throughput_Gbps, prev_conn, cur_conn);
+        // 閾値内の状態 or コネクション確立時
+        if (g_thread_adjust_state == 3) {
+            adaptive_GD_algorithm(prev_thr_Gbps, cur_thr_Gbps, prev_conn, cur_conn);
         }
+        else if (g_thread_adjust_state == 4) {
+            cur_thread_gl++;
+        }
+
         
+        // スレッド数の変化に応じてセマフォを操作
         int diff = cur_thread_gl - old_thread_gl;
-        if (diff > 0) {
+        if (diff == 0) {
+            g_thread_adjust_state = 3;
+            stedy_state_cnt++;
+            if (stedy_state_check == 1) {
+                cur_thread_gl--;
+                stedy_state_check = 0;
+                stedy_state_cnt = 0;
+                // printf("deb 強制的に減らしました\n");
+            }
+            if (stedy_state_cnt >= 20) {
+                cur_thread_gl++;
+                stedy_state_check = 1;
+                stedy_state_cnt = 0;
+                // printf("deb 強制的に増やしました\n");
+            }
+        }
+        else if (diff > 0) {
             for(int i=0; i<diff; ++i) sem_post(&sem_for_optimization);
+            g_thread_adjust_state = 1;
+            stedy_state_check = 0; //　強制的に減らすフラグをリセット
         }
         else if (diff < 0) {
             for(int i=0; i<-diff; ++i) sem_trywait(&sem_for_optimization);
+            g_thread_adjust_state = 2;
+            stedy_state_check = 0; //　強制的に減らすフラグをリセット
         }
 
-        fprintf(stderr, "LOG: time=%ds, threads=%d, throughput=%.4f Gbps, latency=%d ms\n", 
-                (int)(current_time.tv_sec - start_time.tv_sec), cur_thread_gl, throughput_Gbps, max_latency);
-
-
-        prev_thr = throughput_Gbps;
+        prev_thr_Gbps = cur_thr_Gbps;
         prev_conn = cur_conn;
-        prev_total_bytes = total_copied_bytes;
+        prev_total_sent_bytes = total_sent_bytes;
         prev_time = current_time;
+        // printf("dev\n");
     }
     return NULL;
 }
@@ -461,12 +543,13 @@ static void *thread_manage_sftp_cmd() {
  * @brief 最適化アルゴリズムを実行し、スレッド数を動的に調整する
  */
 void *dynamic_transfer_threads_management(void *arg) {
-    if (opt_algo_gl == 5) {
-        threads_manage_BO();
-        return NULL;
-    }
+    /* -c オプションだとこっちに行く（ただし、今のコードだと -a オプションも*/
     if (measure_transaction_latency_gl) {
         thread_manage_sftp_cmd();
+        return NULL;
+    }
+    if (opt_algo_gl == 5) {
+        threads_manage_BO();
         return NULL;
     }
 
