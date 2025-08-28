@@ -151,15 +151,17 @@ int main(int argc, char *argv[]) {
         pthread_join(optimizer_thread, NULL);
     }
     
-    fprintf(stdout, "\n====================== Final Report ======================\n");
-    fprintf(stdout, " Total Transferred: %.2f GB (%zu bytes)\n", final_done_gb, final_stats.done);
-    fprintf(stdout, " Total File Size  : %.2f GB (%zu bytes)\n", (double)final_stats.total / 1000000000.0, final_stats.total);
-    fprintf(stdout, " Total Elapsed Time: %.3f seconds\n", total_elapsed_time);
-    fprintf(stdout, " Average Throughput: %.2f MB/s\n", final_throughput);
-    if(final_stats.total > 0) {
-        fprintf(stdout, " Completion Ratio : %.2f%%\n", 100.0 * final_stats.done / final_stats.total);
+    if (!measure_transaction_latency_gl) {   // -c オプションを使ったときは、最終表示をみせない
+        fprintf(stdout, "\n====================== Final Report ======================\n");
+        fprintf(stdout, " Total Transferred: %.2f GB (%zu bytes)\n", final_done_gb, final_stats.done);
+        fprintf(stdout, " Total File Size  : %.2f GB (%zu bytes)\n", (double)final_stats.total / 1000000000.0, final_stats.total);
+        fprintf(stdout, " Total Elapsed Time: %.3f seconds\n", total_elapsed_time);
+        fprintf(stdout, " Average Throughput: %.2f MB/s\n", final_throughput);
+        if(final_stats.total > 0) {
+            fprintf(stdout, " Completion Ratio : %.2f%%\n", 100.0 * final_stats.done / final_stats.total);
+        }
+        fprintf(stdout, "==========================================================\n");
     }
-    fprintf(stdout, "==========================================================\n");
 
     pthread_mutex_destroy(&transfer_mutex);
     sem_destroy(&sem_for_maxstartups);

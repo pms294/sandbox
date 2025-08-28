@@ -380,8 +380,7 @@ static void *thread_manage_sftp_cmd() {
     int stedy_state_cnt = 0;
     int stedy_state_check = 0;
 
-    printf("dev\ndev\ndev\n");
-    
+
     while (!transfer_complete_gl) {
 
         // g_thread_adjust_state == 0   スレッドの初期条件
